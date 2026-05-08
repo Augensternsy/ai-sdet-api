@@ -1,34 +1,59 @@
-from http.server import BaseHTTPRequestHandler
-import json
-import os
-from openai import OpenAI
+# -*- coding: utf-8 -*-
+"""
+FastAPI 主应用 - AI 测试用例生成 API
 
-class handler(BaseHTTPRequestHandler):
-    def do_GET(self):
-        if self.path == '/' or self.path == '/health':
-            self.send_response(200)
-            self.send_header('Content-type', 'application/json')
-            self.send_header('Access-Control-Allow-Origin', '*')
-            self.end_headers()
-            response = {
-                "name": "AI-Driven SDET Toolkit API",
-                "version": "1.0.0",
-                "status": "running"
-            }
-            self.wfile.write(json.dumps(response).encode())
-        else:
-            self.send_response(404)
-            self.end_headers()
-    
-    def do_POST(self):
-        if self.path == '/api/generate_cases':
-            content_length = int(self.headers['Content-Length'])
-            post_data = self.rfile.read(content_length)
-            request_body = json.loads(post_data.decode('utf-8'))
-            requirement = request_body.get('requirement', '')
-            
-            try:
-                system_prompt = """你是一个专业的软件测试工程师。请根据用户的需求生成标准化的测试用例。
+使用 FastAPI + Mangum 部署到 Vercel
+"""
+
+import os
+import json
+from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel, Field
+from openai import OpenAI
+from mangum import Mangum
+
+# 创建 FastAPI 应用
+app = FastAPI(
+    title="AI-Driven SDET Toolkit API",
+    description="基于 RAG 与 Agent 的自动化测试助手 API",
+    version="1.0.0"
+)
+
+# 配置 CORS 中间件
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+# 请求体模型
+class GenerateCasesRequest(BaseModel):
+    requirement: str = Field(..., min_length=1, max_length=2000)
+    top_k: int = Field(default=3, ge=1, le=10)
+
+
+@app.get("/")
+async def root():
+    return {
+        "name": "AI-Driven SDET Toolkit API",
+        "version": "1.0.0",
+        "status": "running"
+    }
+
+
+@app.get("/health")
+async def health_check():
+    return {"status": "healthy"}
+
+
+@app.post("/api/generate_cases")
+async def generate_cases(request: GenerateCasesRequest):
+    try:
+        system_prompt = """你是一个专业的软件测试工程师。请根据用户的需求生成标准化的测试用例。
 
 要求：
 1. 生成 5 个测试用例
@@ -52,67 +77,50 @@ JSON 格式示例：
   ]
 }"""
 
-                user_prompt = f"请为以下需求生成测试用例：{requirement}"
+        user_prompt = f"请为以下需求生成测试用例：{request.requirement}"
 
-                client = OpenAI(
-                    api_key=os.getenv("OPENAI_API_KEY"),
-                    base_url=os.getenv("OPENAI_BASE_URL", "https://api.qnaigc.com/v1")
-                )
-                model_name = os.getenv("MODEL_NAME", "deepseek-v3")
+        client = OpenAI(
+            api_key=os.getenv("OPENAI_API_KEY"),
+            base_url=os.getenv("OPENAI_BASE_URL", "https://api.qnaigc.com/v1")
+        )
+        model_name = os.getenv("MODEL_NAME", "deepseek-v3")
 
-                response = client.chat.completions.create(
-                    model=model_name,
-                    messages=[
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": user_prompt}
-                    ],
-                    temperature=0.7,
-                    max_tokens=2000
-                )
+        response = client.chat.completions.create(
+            model=model_name,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ],
+            temperature=0.7,
+            max_tokens=2000
+        )
 
-                response_text = response.choices[0].message.content
+        response_text = response.choices[0].message.content
 
-                # 解析 JSON
-                json_start = response_text.find("{")
-                json_end = response_text.rfind("}") + 1
-                if json_start != -1 and json_end != -1:
-                    json_str = response_text[json_start:json_end]
-                    json_data = json.loads(json_str)
-                else:
-                    json_data = json.loads(response_text)
-
-                test_cases = json_data.get("test_cases", [])
-
-                result = {
-                    "success": True,
-                    "message": "测试用例生成成功",
-                    "data": test_cases,
-                    "total_cases": len(test_cases)
-                }
-
-                self.send_response(200)
-                self.send_header('Content-type', 'application/json')
-                self.send_header('Access-Control-Allow-Origin', '*')
-                self.end_headers()
-                self.wfile.write(json.dumps(result).encode())
-
-            except Exception as e:
-                self.send_response(500)
-                self.send_header('Content-type', 'application/json')
-                self.send_header('Access-Control-Allow-Origin', '*')
-                self.end_headers()
-                error_response = {
-                    "success": False,
-                    "message": f"生成测试用例失败: {str(e)}"
-                }
-                self.wfile.write(json.dumps(error_response).encode())
+        # 解析 JSON
+        json_start = response_text.find("{")
+        json_end = response_text.rfind("}") + 1
+        if json_start != -1 and json_end != -1:
+            json_str = response_text[json_start:json_end]
+            json_data = json.loads(json_str)
         else:
-            self.send_response(404)
-            self.end_headers()
-    
-    def do_OPTIONS(self):
-        self.send_response(200)
-        self.send_header('Access-Control-Allow-Origin', '*')
-        self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
-        self.send_header('Access-Control-Allow-Headers', 'Content-Type')
-        self.end_headers()
+            json_data = json.loads(response_text)
+
+        test_cases = json_data.get("test_cases", [])
+
+        return {
+            "success": True,
+            "message": "测试用例生成成功",
+            "data": test_cases,
+            "total_cases": len(test_cases)
+        }
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"生成测试用例失败: {str(e)}"
+        )
+
+
+# Mangum handler for Vercel
+handler = Mangum(app)
