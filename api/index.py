@@ -19,6 +19,9 @@ from mangum import Mangum
 from langchain_community.document_loaders import TextLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_openai import OpenAIEmbeddings
+import sys
+sys.path.append(os.path.dirname(os.path.dirname(__file__)))
+from algorithm_solution_generator import AlgorithmRequest, generate_algorithm_solution
 
 # 加载 .env 文件
 load_dotenv()
@@ -334,6 +337,37 @@ async def generate_cases(request: GenerateCasesRequest):
         raise HTTPException(
             status_code=500,
             detail=f"生成测试用例失败: {str(e)}"
+        )
+
+
+@app.post("/api/algorithm-solver")
+async def algorithm_solver(request: AlgorithmRequest):
+    """
+    AI 算法题解与复杂度分析生成器
+    
+    根据算法题描述生成：
+    - 题目类型识别
+    - 解题思路
+    - 数据结构选择
+    - 参考代码
+    - 复杂度分析
+    - 边界样例
+    - 易错点总结
+    - 优化方案
+    """
+    try:
+        result = generate_algorithm_solution(request)
+        
+        return {
+            "success": True,
+            "message": "算法题解生成成功",
+            "data": result
+        }
+    
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"生成算法题解失败: {str(e)}"
         )
 
 
